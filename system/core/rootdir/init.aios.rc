@@ -1,0 +1,95 @@
+# Copyright (C) 2025 AIOS-Android Project
+# Based on AOSP Android 4.0.1_r1 (Ice Cream Sandwich)
+# Licensed under the Apache License, Version 2.0
+
+# AIOS Init Configuration
+# Defines AIOS-specific services and boot sequence
+
+on early-init
+    # Set AIOS properties
+    setprop persist.aios.version "4.0.1-AIOS"
+    setprop persist.aios.mode "full"
+    setprop persist.aios.clustering "enabled"
+    
+    # Create AIOS directories
+    mkdir /data/aios 0771 system system
+    mkdir /data/aios/brain 0771 system system
+    mkdir /data/aios/memory 0771 system system
+    mkdir /data/aios/logs 0771 system system
+
+on post-fs-data
+    # Set permissions for AIOS directories
+    chown system system /data/aios
+    chmod 0771 /data/aios
+    
+    # Create AIOS socket directory
+    mkdir /dev/socket/aios 0770 system system
+
+# AIOS Brain Daemon Service
+service aios-brain /system/bin/aiosd --brain
+    class main
+    user system
+    group system inet net_admin
+    socket aios-brain stream 0666 system system
+    seclabel u:r:aios:s0
+    oneshot
+
+# AIOS Perception Service
+service aios-perception /system/bin/aiosd --perception
+    class main
+    user system
+    group system input audio camera
+    seclabel u:r:aios:s0
+
+# AIOS Actuation Service
+service aios-actuation /system/bin/aiosd --actuation
+    class main
+    user system
+    group system root
+    seclabel u:r:aios:s0
+    capabilities SYS_ADMIN SYS_BOOT
+
+# AIOS Memory Sync Service
+service aios-memory-sync /system/bin/aiosd --memory-sync
+    class main
+    user system
+    group system net_raw inet
+    socket aios-sync stream 0666 system system
+    seclabel u:r:aios:s0
+
+# AIOS Cluster Discovery Service
+service aios-cluster /system/bin/aiosd --cluster
+    class main
+    user system
+    group system net_raw inet net_admin
+    socket aios-cluster stream 0666 system system
+    seclabel u:r:aios:s0
+
+on boot
+    # Start AIOS services early
+    start aios-brain
+    start aios-perception
+    start aios-actuation
+    start aios-memory-sync
+    start aios-cluster
+    
+    # Set AIOS wake lock to prevent sleep
+    write /sys/power/wake_lock aios_core_wakelock
+    
+    # Configure CPU governor for AIOS
+    write /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor performance
+    
+    # Network optimizations for clustering
+    write /proc/sys/net/core/rmem_max 8388608
+    write /proc/sys/net/core/wmem_max 8388608
+
+on property:persist.aios.debug=1
+    # Enable debug logging
+    setprop log.tag.AIOS DEBUG
+    setprop log.tag.AIosBrain DEBUG
+    setprop log.tag.AIosPerception DEBUG
+
+on property:persist.aios.mode=minimal
+    # Minimal mode - disable some services
+    stop aios-perception
+    stop aios-cluster
